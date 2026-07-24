@@ -13,6 +13,8 @@ class Program
         string url = "https://controlxrm.digisac.me/api/v1/contacts";
         string token = "60b7fa3f351bca976997c61a09aac92c7c838bc5";
         string connString = "Host=ep-lucky-sun-ayo24u1p-pooler.c-5.us-east-2.aws.neon.tech;Port=5432;Username=neondb_owner;Password=npg_aSOJP3H4CYum;Database=neondb;SSL Mode=Require;Trust Server Certificate=true";
+        string dataInicial = "2026-07-01"; // Data inicial para filtrar os contatos
+        string dataFinal = "2026-07-31"; // Data final para filtrar os contatos
 
         using HttpClient client = new HttpClient();
         client.DefaultRequestHeaders.Authorization =    
@@ -26,7 +28,7 @@ class Program
 
         while (pagina <= lastPage)
         {
-            string urlComPagina = $"{url}?page={pagina}"; // adiciona o parâmetro de página na URL
+            string urlComPagina = $"{url}?page={pagina}&where[lastMessageAt][$gte]={dataInicial}&where[lastMessageAt][$lte]={dataFinal}";
             HttpResponseMessage resposta = await client.GetAsync(urlComPagina); // faz a requisição GET para a API
             string conteudoJson = await resposta.Content.ReadAsStringAsync(); 
 
@@ -35,17 +37,14 @@ class Program
 
             foreach (Contato contato in dados.Data)
             {
-                string noteTruncado = contato.Note != null && contato.Note.Length > 255
-                    ? contato.Note.Substring(0, 255)
-                    : contato.Note;
 
-                string sql = "INSERT INTO contato (id, nome, numero, note) VALUES (@id, @nome, @numero, @note) ON CONFLICT (id) DO NOTHING";
+                string sql = "INSERT INTO contato (id, nome, numero, note) VALUES (@id, @nome, @numero, @note) ON CONFLICT (id) DO NOTHING"; 
 
                 await using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("id", contato.Id);
                 cmd.Parameters.AddWithValue("nome", (object)contato.Name ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("numero", (object)contato.Data?.Number ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("note", (object)contato.Note ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("note", (object)contato.Note ?? DBNull.Value); 
 
                 await cmd.ExecuteNonQueryAsync();
             }
