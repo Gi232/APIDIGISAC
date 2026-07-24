@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Net.Http;
+using System.Net.Http; // import para HttpClient (requisições HTTP)
 using System.Net.Http.Headers;
-using System.Text.Json;
+using System.Text.Json;     // import para JsonSerializer (conversão de JSON para objetos C#)
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using Npgsql;
+using Npgsql; // import para Npgsql (conexão com PostgreSQL)
 
 class Program
 {
@@ -15,20 +15,20 @@ class Program
         string connString = "Host=ep-lucky-sun-ayo24u1p-pooler.c-5.us-east-2.aws.neon.tech;Port=5432;Username=neondb_owner;Password=npg_aSOJP3H4CYum;Database=neondb;SSL Mode=Require;Trust Server Certificate=true";
 
         using HttpClient client = new HttpClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Authorization =    
+            new AuthenticationHeaderValue("Bearer", token); // Adiciona o token de autenticação no cabeçalho da requisição
 
         await using var conn = new NpgsqlConnection(connString);
-        await conn.OpenAsync();
+        await conn.OpenAsync(); // Abre a conexão com o banco de dados
 
         int pagina = 1;
         int lastPage = 1; // valor "chute" inicial
 
         while (pagina <= lastPage)
         {
-            string urlComPagina = $"{url}?page={pagina}";
-            HttpResponseMessage resposta = await client.GetAsync(urlComPagina);
-            string conteudoJson = await resposta.Content.ReadAsStringAsync();
+            string urlComPagina = $"{url}?page={pagina}"; // adiciona o parâmetro de página na URL
+            HttpResponseMessage resposta = await client.GetAsync(urlComPagina); // faz a requisição GET para a API
+            string conteudoJson = await resposta.Content.ReadAsStringAsync(); 
 
             RespostaContatos dados = JsonSerializer.Deserialize<RespostaContatos>(conteudoJson);
             lastPage = dados.LastPage; // atualiza com o valor real
