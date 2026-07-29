@@ -14,7 +14,7 @@ class Program
         string url = "https://controlxrm.digisac.me/api/v1/contacts";
         string token = "60b7fa3f351bca976997c61a09aac92c7c838bc5";
         //string connString = "Host=ep-lucky-sun-ayo24u1p-pooler.c-5.us-east-2.aws.neon.tech;Port=5432;Username=neondb_owner;Password=npg_aSOJP3H4CYum;Database=neondb;SSL Mode=Require;Trust Server Certificate=true";
-        string connString = "Server= 18.229.25.35; Database=xrm_producao; UID=XRMusuario; PWD=xrm; Connection Timeout=600; TrustServerCertificate=true;";
+        string connString = "Server= 18.229.25.35;Database=xrm_producao;UID=XRMusuario;PWD=xrm;Connection Timeout=600;TrustServerCertificate=true";
         string dataInicial = "2026-07-20"; // Data inicial para filtrar os contatos
         string dataFinal = "2026-07-27"; // Data final para filtrar os contatos
 
@@ -53,9 +53,9 @@ class Program
 
             foreach (Contato contato in dados.Data)
             {
-                string sql = @"INSERT INTO Contatos_Digisac (id, nome, numero, note, internalname, lastmessageat, createdat) 
-                               VALUES (@id, @nome, @numero, @note, @internalname, @lastmessageat, @createdat) 
-                               ON CONFLICT (id) DO UPDATE SET
+                string sql = @"INSERT INTO Contatos_Digisac (idContatoDigisac, nome, numero, note, internalname, lastmessageat, createdat) 
+                               VALUES (@idContatoDigisac, @nome, @numero, @note, @internalname, @lastmessageat, @createdat) 
+                               ON CONFLICT (idContatoDigisac) DO UPDATE SET
                                    nome = EXCLUDED.nome,
                                    numero = EXCLUDED.numero,
                                    note = EXCLUDED.note,
@@ -64,7 +64,7 @@ class Program
                                    createdat = EXCLUDED.createdat";
 
                 await using var cmd = new NpgsqlCommand(sql, conn);
-                cmd.Parameters.AddWithValue("id", contato.Id);
+                cmd.Parameters.AddWithValue("idContatoDigisac", contato.Id);
                 cmd.Parameters.AddWithValue("nome", (object)contato.Name ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("numero", (object)contato.Data?.Number ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("note", (object)contato.Note ?? DBNull.Value);
@@ -74,7 +74,7 @@ class Program
 
                 await cmd.ExecuteNonQueryAsync();
 
-                // A PARTE 2 ENTRA AQUI, ainda dentro do foreach:
+                
                 if (!string.IsNullOrEmpty(contato.Note))
                 {
                     string[] idsLoja = contato.Note.Split('|');
@@ -85,10 +85,10 @@ class Program
 
                         if (lojasValidas.Contains(idLimpo))
                         {
-                            string sqlLigacao = "INSERT INTO Contatos_Digisac_Loja (idcontato, idlojasistema) VALUES (@idcontato, @idlojasistema) ON CONFLICT DO NOTHING";
+                            string sqlLigacao = "INSERT INTO Contatos_Digisac_Loja (idContatoDigisac, idloja) VALUES (@idContatoDigisac, @idloja) ON CONFLICT DO NOTHING";
                             await using var cmdLigacao = new NpgsqlCommand(sqlLigacao, conn);
-                            cmdLigacao.Parameters.AddWithValue("idcontato", contato.Id);
-                            cmdLigacao.Parameters.AddWithValue("idlojasistema", int.Parse(idLimpo));
+                            cmdLigacao.Parameters.AddWithValue("idContatoDigisac", contato.Id);
+                            cmdLigacao.Parameters.AddWithValue("idloja", int.Parse(idLimpo));
                             await cmdLigacao.ExecuteNonQueryAsync();
                         }
                         else
@@ -128,13 +128,13 @@ class Contato
     public string Note { get; set; }
 
     [JsonPropertyName("internalName")]
-    public string InternalName { get; set; }              // NOVO
+    public string InternalName { get; set; }              
 
     [JsonPropertyName("lastMessageAt")]
-    public DateTime? LastMessageAt { get; set; }           // NOVO
+    public DateTime? LastMessageAt { get; set; }           
 
     [JsonPropertyName("createdAt")]
-    public DateTime? CreatedAt { get; set; }                // NOVO
+    public DateTime? CreatedAt { get; set; }                
 
     [JsonPropertyName("data")]
     public DadosContato Data { get; set; }
