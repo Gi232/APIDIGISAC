@@ -13,7 +13,8 @@ class Program
     {
         string url = "https://controlxrm.digisac.me/api/v1/contacts";
         string token = "60b7fa3f351bca976997c61a09aac92c7c838bc5";
-        string connString = "Host=ep-lucky-sun-ayo24u1p-pooler.c-5.us-east-2.aws.neon.tech;Port=5432;Username=neondb_owner;Password=npg_aSOJP3H4CYum;Database=neondb;SSL Mode=Require;Trust Server Certificate=true";
+        //string connString = "Host=ep-lucky-sun-ayo24u1p-pooler.c-5.us-east-2.aws.neon.tech;Port=5432;Username=neondb_owner;Password=npg_aSOJP3H4CYum;Database=neondb;SSL Mode=Require;Trust Server Certificate=true";
+        string connString = "Server= 18.229.25.35; Database=xrm_producao; UID=XRMusuario; PWD=xrm; Connection Timeout=600; TrustServerCertificate=true;";
         string dataInicial = "2026-07-20"; // Data inicial para filtrar os contatos
         string dataFinal = "2026-07-27"; // Data final para filtrar os contatos
 
@@ -24,19 +25,19 @@ class Program
         await using var conn = new NpgsqlConnection(connString);
         await conn.OpenAsync(); // Abre a conexão com o banco de dados
 
-        HashSet<string> lojasValidas = new HashSet<string>();
+        //HashSet<string> lojasValidas = new HashSet<string>();
 
-        string sqlLojas = "SELECT idlojasistema FROM lojas";
-        await using (var cmdLojas = new NpgsqlCommand(sqlLojas, conn))
-        await using (var reader = await cmdLojas.ExecuteReaderAsync())
-        {
-            while (await reader.ReadAsync())
-            {
-                lojasValidas.Add(reader.GetInt32(0).ToString());
-            }
-        }
+        //string sqlLojas = "SELECT idlojasistema FROM lojas";
+        //await using (var cmdLojas = new NpgsqlCommand(sqlLojas, conn))
+        //await using (var reader = await cmdLojas.ExecuteReaderAsync())
+        //{
+        //    while (await reader.ReadAsync())
+        //    {
+        //        lojasValidas.Add(reader.GetInt32(0).ToString());
+        //    }
+        //}
 
-        Console.WriteLine($"Lojas válidas carregadas: {lojasValidas.Count}");
+        //Console.WriteLine($"Lojas válidas carregadas: {lojasValidas.Count}");
 
         int pagina = 1;
         int lastPage = 1; // valor "chute" inicial
@@ -52,7 +53,7 @@ class Program
 
             foreach (Contato contato in dados.Data)
             {
-                string sql = @"INSERT INTO contato (id, nome, numero, note, internalname, lastmessageat, createdat) 
+                string sql = @"INSERT INTO Contatos_Digisac (id, nome, numero, note, internalname, lastmessageat, createdat) 
                                VALUES (@id, @nome, @numero, @note, @internalname, @lastmessageat, @createdat) 
                                ON CONFLICT (id) DO UPDATE SET
                                    nome = EXCLUDED.nome,
@@ -76,7 +77,7 @@ class Program
                 // A PARTE 2 ENTRA AQUI, ainda dentro do foreach:
                 if (!string.IsNullOrEmpty(contato.Note))
                 {
-                    string[] idsLoja = contato.Note.Split(',');
+                    string[] idsLoja = contato.Note.Split('|');
 
                     foreach (string pedaco in idsLoja)
                     {
@@ -84,7 +85,7 @@ class Program
 
                         if (lojasValidas.Contains(idLimpo))
                         {
-                            string sqlLigacao = "INSERT INTO contato_loja (idcontato, idlojasistema) VALUES (@idcontato, @idlojasistema) ON CONFLICT DO NOTHING";
+                            string sqlLigacao = "INSERT INTO Contatos_Digisac_Loja (idcontato, idlojasistema) VALUES (@idcontato, @idlojasistema) ON CONFLICT DO NOTHING";
                             await using var cmdLigacao = new NpgsqlCommand(sqlLigacao, conn);
                             cmdLigacao.Parameters.AddWithValue("idcontato", contato.Id);
                             cmdLigacao.Parameters.AddWithValue("idlojasistema", int.Parse(idLimpo));
