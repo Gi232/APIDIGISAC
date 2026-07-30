@@ -1,11 +1,10 @@
 ﻿using System;
-using System.Net.Http; // import para HttpClient (requisições HTTP)
+using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json;     // import para JsonSerializer (conversão de JSON para objetos C#)
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using System.Collections.Generic; // import para HashSet
-using Npgsql; // import para Npgsql (conexão com PostgreSQL)
+using Microsoft.Data.SqlClient;
 
 class Program
 {
@@ -13,90 +12,28 @@ class Program
     {
         string url = "https://controlxrm.digisac.me/api/v1/contacts";
         string token = "60b7fa3f351bca976997c61a09aac92c7c838bc5";
-        //string connString = "Host=ep-lucky-sun-ayo24u1p-pooler.c-5.us-east-2.aws.neon.tech;Port=5432;Username=neondb_owner;Password=npg_aSOJP3H4CYum;Database=neondb;SSL Mode=Require;Trust Server Certificate=true";
-        string connString = "Server= 18.229.25.35;Database=xrm_producao;UID=XRMusuario;PWD=xrm;Connection Timeout=600;TrustServerCertificate=true";
-        string dataInicial = "2026-07-20"; // Data inicial para filtrar os contatos
-        string dataFinal = "2026-07-27"; // Data final para filtrar os contatos
+        string connString = "Server=18.229.25.35;Database=xrm_producao;UID=XRMusuario;PWD=xrm;Connection Timeout=600;TrustServerCertificate=true";
+        string dataInicial = "2026-07-20";
+        string dataFinal = "2026-07-27";
 
         using HttpClient client = new HttpClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", token); // Adiciona o token de autenticação no cabeçalho da requisição
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        await using var conn = new NpgsqlConnection(connString);
-        await conn.OpenAsync(); // Abre a conexão com o banco de dados
-
-        //HashSet<string> lojasValidas = new HashSet<string>();
-
-        //string sqlLojas = "SELECT idlojasistema FROM lojas";
-        //await using (var cmdLojas = new NpgsqlCommand(sqlLojas, conn))
-        //await using (var reader = await cmdLojas.ExecuteReaderAsync())
-        //{
-        //    while (await reader.ReadAsync())
-        //    {
-        //        lojasValidas.Add(reader.GetInt32(0).ToString());
-        //    }
-        //}
-
-        //Console.WriteLine($"Lojas válidas carregadas: {lojasValidas.Count}");
+        await using var conn = new SqlConnection(connString);
+        await conn.OpenAsync();
 
         int pagina = 1;
-        int lastPage = 1; // valor "chute" inicial
+        int lastPage = 1;
 
         while (pagina <= lastPage)
         {
-            string urlComPagina = $"{url}?page={pagina}&where[lastMessageAt][$gte]={dataInicial}&where[lastMessageAt][$lte]={dataFinal}";
-            HttpResponseMessage resposta = await client.GetAsync(urlComPagina); // faz a requisição GET para a API
-            string conteudoJson = await resposta.Content.ReadAsStringAsync();
-
-            RespostaContatos dados = JsonSerializer.Deserialize<RespostaContatos>(conteudoJson);
-            lastPage = dados.LastPage; // atualiza com o valor real
+            RespostaContatos dados = await BuscarPaginaContatos(client, url, pagina, dataInicial, dataFinal);
+            lastPage = dados.LastPage;
 
             foreach (Contato contato in dados.Data)
             {
-                string sql = @"INSERT INTO Contatos_Digisac (idContatoDigisac, nome, numero, note, internalname, lastmessageat, createdat) 
-                               VALUES (@idContatoDigisac, @nome, @numero, @note, @internalname, @lastmessageat, @createdat) 
-                               ON CONFLICT (idContatoDigisac) DO UPDATE SET
-                                   nome = EXCLUDED.nome,
-                                   numero = EXCLUDED.numero,
-                                   note = EXCLUDED.note,
-                                   internalname = EXCLUDED.internalname,
-                                   lastmessageat = EXCLUDED.lastmessageat,
-                                   createdat = EXCLUDED.createdat";
-
-                await using var cmd = new NpgsqlCommand(sql, conn);
-                cmd.Parameters.AddWithValue("idContatoDigisac", contato.Id);
-                cmd.Parameters.AddWithValue("nome", (object)contato.Name ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("numero", (object)contato.Data?.Number ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("note", (object)contato.Note ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("lastmessageat", (object)contato.LastMessageAt ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("internalname", (object)contato.InternalName ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("createdat", (object)contato.CreatedAt ?? DBNull.Value);
-
-                await cmd.ExecuteNonQueryAsync();
-
-                
-                if (!string.IsNullOrEmpty(contato.Note))
-                {
-                    string[] idsLoja = contato.Note.Split('|');
-
-                    foreach (string pedaco in idsLoja)
-                    {
-                        string idLimpo = pedaco.Trim();
-
-                        if (lojasValidas.Contains(idLimpo))
-                        {
-                            string sqlLigacao = "INSERT INTO Contatos_Digisac_Loja (idContatoDigisac, idloja) VALUES (@idContatoDigisac, @idloja) ON CONFLICT DO NOTHING";
-                            await using var cmdLigacao = new NpgsqlCommand(sqlLigacao, conn);
-                            cmdLigacao.Parameters.AddWithValue("idContatoDigisac", contato.Id);
-                            cmdLigacao.Parameters.AddWithValue("idloja", int.Parse(idLimpo));
-                            await cmdLigacao.ExecuteNonQueryAsync();
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Aviso: loja '{idLimpo}' não encontrada (contato {contato.Id}).");
-                        }
-                    }
-                }
+                await InserirOuAtualizarContato(contato, conn);
+                await ProcessarLigacoesLoja(contato, conn);
             }
 
             Console.WriteLine($"Página {pagina} de {lastPage} processada.");
@@ -104,6 +41,85 @@ class Program
         }
 
         Console.WriteLine("Concluído!");
+    }
+
+    static async Task<RespostaContatos> BuscarPaginaContatos(HttpClient client, string url, int pagina, string dataInicial, string dataFinal)
+    {
+        string urlComPagina = $"{url}?page={pagina}&where[lastMessageAt][$gte]={dataInicial}&where[lastMessageAt][$lte]={dataFinal}";
+        HttpResponseMessage resposta = await client.GetAsync(urlComPagina);
+        string conteudoJson = await resposta.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<RespostaContatos>(conteudoJson);
+    }
+
+    static async Task InserirOuAtualizarContato(Contato contato, SqlConnection conn)
+    {
+        string sql = @"MERGE INTO Contatos_Digisac AS alvo
+                       USING (SELECT @idContatoDigisac AS idContatoDigisac, @nome AS nome, @numero AS numero, 
+                                     @note AS note, @internalname AS internalname, 
+                                     @lastmessageat AS lastmessageat, @createdat AS createdat) AS origem
+                       ON alvo.idContatoDigisac = origem.idContatoDigisac
+                       WHEN MATCHED THEN
+                           UPDATE SET
+                               nome = origem.nome,
+                               numero = origem.numero,
+                               note = origem.note,
+                               internalname = origem.internalname,
+                               lastmessageat = origem.lastmessageat,
+                               createdat = origem.createdat
+                       WHEN NOT MATCHED THEN
+                           INSERT (idContatoDigisac, nome, numero, note, internalname, lastmessageat, createdat)
+                           VALUES (origem.idContatoDigisac, origem.nome, origem.numero, origem.note, 
+                                   origem.internalname, origem.lastmessageat, origem.createdat);";
+
+        await using var cmd = new SqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("idContatoDigisac", contato.Id);
+        cmd.Parameters.AddWithValue("nome", (object)contato.Name ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("numero", (object)contato.Data?.Number ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("note", (object)contato.Note ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("internalname", (object)contato.InternalName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("lastmessageat", (object)contato.LastMessageAt ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("createdat", (object)contato.CreatedAt ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    static async Task ProcessarLigacoesLoja(Contato contato, SqlConnection conn)
+    {
+        if (string.IsNullOrEmpty(contato.Note)) return;
+
+        string[] idsLoja = contato.Note.Split(',');
+
+        foreach (string pedaco in idsLoja)
+        {
+            string idLimpo = pedaco.Trim();
+
+            if (!int.TryParse(idLimpo, out int idLojaConvertido))
+            {
+                Console.WriteLine($"Aviso: valor '{idLimpo}' não é um ID de loja válido (contato {contato.Id}).");
+                continue;
+            }
+
+            try
+            {
+                string sqlLigacao = @"IF NOT EXISTS (
+                                          SELECT 1 FROM Contatos_Digisac_loja 
+                                          WHERE idContatoDigisac = @idContatoDigisac AND idloja = @idloja
+                                       )
+                                       BEGIN
+                                           INSERT INTO Contatos_Digisac_loja (idContatoDigisac, idloja) 
+                                           VALUES (@idContatoDigisac, @idloja)
+                                       END";
+
+                await using var cmdLigacao = new SqlCommand(sqlLigacao, conn);
+                cmdLigacao.Parameters.AddWithValue("idContatoDigisac", contato.Id);
+                cmdLigacao.Parameters.AddWithValue("idloja", idLojaConvertido);
+                await cmdLigacao.ExecuteNonQueryAsync();
+            }
+            catch (SqlException)
+            {
+                Console.WriteLine($"Aviso: loja '{idLimpo}' não encontrada (contato {contato.Id}).");
+            }
+        }
     }
 }
 
@@ -119,29 +135,29 @@ class RespostaContatos
 class Contato
 {
     [JsonPropertyName("id")]
-    public string Id { get; set; }
+    public string? Id { get; set; }
 
     [JsonPropertyName("name")]
-    public string Name { get; set; }
+    public string? Name { get; set; }
 
     [JsonPropertyName("note")]
-    public string Note { get; set; }
+    public string? Note { get; set; }
 
     [JsonPropertyName("internalName")]
-    public string InternalName { get; set; }              
+    public string? InternalName { get; set; }
 
     [JsonPropertyName("lastMessageAt")]
-    public DateTime? LastMessageAt { get; set; }           
+    public DateTime? LastMessageAt { get; set; }
 
     [JsonPropertyName("createdAt")]
-    public DateTime? CreatedAt { get; set; }                
+    public DateTime? CreatedAt { get; set; }
 
     [JsonPropertyName("data")]
-    public DadosContato Data { get; set; }
+    public DadosContato? Data { get; set; }
 }
 
 class DadosContato
 {
     [JsonPropertyName("number")]
-    public string Number { get; set; }
+    public string? Number { get; set; }
 }
