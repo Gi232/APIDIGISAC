@@ -87,7 +87,7 @@ class Program
     {
         if (string.IsNullOrEmpty(contato.Note)) return;
 
-        string[] idsLoja = contato.Note.Split(',');
+        string[] idsLoja = contato.Note.Split('|');
 
         foreach (string pedaco in idsLoja)
         {
