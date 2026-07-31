@@ -25,6 +25,10 @@ class Program
         int pagina = 1;
         int lastPage = 1;
 
+        string sqldel = $"DELETE FROM Contatos_Digisac_loja";
+        await using var cmdDel = new SqlCommand(sqldel, conn);
+        await cmdDel.ExecuteNonQueryAsync();
+
         while (pagina <= lastPage)
         {
             RespostaContatos dados = await BuscarPaginaContatos(client, url, pagina, dataInicial, dataFinal);
@@ -88,6 +92,8 @@ class Program
         if (string.IsNullOrEmpty(contato.Note)) return;
 
         string[] idsLoja = contato.Note.Split('|');
+
+       
 
         foreach (string pedaco in idsLoja)
         {
