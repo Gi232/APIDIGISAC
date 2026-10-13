@@ -10,11 +10,17 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        string url = "https://controlxrm.digisac.me/api/v1/contacts";
-        string token = "60b7fa3f351bca976997c61a09aac92c7c838bc5";
-        string connString = "Server=18.229.25.35;Database=xrm_producao;UID=XRMusuario;PWD=xrm;Connection Timeout=600;TrustServerCertificate=true";
-        string dataInicial = "2026-07-20";
-        string dataFinal = "2026-07-27";
+        string url = ObterConfiguracao("API_CONTACTS_URL");
+        string token = ObterConfiguracao("API_TOKEN");
+        string connString = ObterConfiguracao("SQL_CONNECTION_STRING");
+        string dataInicial = ObterConfiguracao("SYNC_START_DATE");
+        string dataFinal = ObterConfiguracao("SYNC_END_DATE");
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var apiUri) || apiUri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("API_CONTACTS_URL deve ser uma URL HTTPS.");
+        if (!DateOnly.TryParseExact(dataInicial, "yyyy-MM-dd", out var inicio) ||
+            !DateOnly.TryParseExact(dataFinal, "yyyy-MM-dd", out var fim) || inicio > fim)
+            throw new InvalidOperationException("Informe datas válidas no formato yyyy-MM-dd, com início anterior ou igual ao fim.");
 
         using HttpClient client = new HttpClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -30,7 +36,7 @@ class Program
             RespostaContatos dados = await BuscarPaginaContatos(client, url, pagina, dataInicial, dataFinal);
             lastPage = dados.LastPage;
 
-            foreach (Contato contato in dados.Data)
+            foreach (Contato contato in dados.Data!)
             {
                 await InserirOuAtualizarContato(contato, conn);
                 await ProcessarLigacoesLoja(contato, conn);
@@ -43,21 +49,37 @@ class Program
         Console.WriteLine("Concluído!");
     }
 
+    static string ObterConfiguracao(string nome)
+    {
+        var valor = Environment.GetEnvironmentVariable(nome);
+        if (string.IsNullOrWhiteSpace(valor))
+            throw new InvalidOperationException($"Configure a variável de ambiente {nome}.");
+        return valor;
+    }
+
     static async Task<RespostaContatos> BuscarPaginaContatos(HttpClient client, string url, int pagina, string dataInicial, string dataFinal)
     {
         string urlComPagina = $"{url}?page={pagina}&where[lastMessageAt][$gte]={dataInicial}&where[lastMessageAt][$lte]={dataFinal}";
-        HttpResponseMessage resposta = await client.GetAsync(urlComPagina);
+        using HttpResponseMessage resposta = await client.GetAsync(urlComPagina);
+        resposta.EnsureSuccessStatusCode();
         string conteudoJson = await resposta.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<RespostaContatos>(conteudoJson);
+        var dados = JsonSerializer.Deserialize<RespostaContatos>(conteudoJson)
+            ?? throw new InvalidOperationException("A API retornou uma resposta JSON vazia.");
+        if (dados.Data is null || dados.LastPage < 1)
+            throw new InvalidOperationException("A resposta deve conter data e lastPage válidos.");
+        return dados;
     }
 
     static async Task InserirOuAtualizarContato(Contato contato, SqlConnection conn)
     {
-        string sql = @"MERGE INTO Contatos_Digisac AS alvo
-                       USING (SELECT @idContatoDigisac AS idContatoDigisac, @nome AS nome, @numero AS numero, 
+        if (string.IsNullOrWhiteSpace(contato.Id))
+            throw new InvalidOperationException("A API retornou um contato sem identificador.");
+
+        string sql = @"MERGE INTO Contatos AS alvo
+                       USING (SELECT @idContatoExterno AS idContatoExterno, @nome AS nome, @numero AS numero, 
                                      @note AS note, @internalname AS internalname, 
                                      @lastmessageat AS lastmessageat, @createdat AS createdat) AS origem
-                       ON alvo.idContatoDigisac = origem.idContatoDigisac
+                       ON alvo.idContatoExterno = origem.idContatoExterno
                        WHEN MATCHED THEN
                            UPDATE SET
                                nome = origem.nome,
@@ -67,12 +89,12 @@ class Program
                                lastmessageat = origem.lastmessageat,
                                createdat = origem.createdat
                        WHEN NOT MATCHED THEN
-                           INSERT (idContatoDigisac, nome, numero, note, internalname, lastmessageat, createdat)
-                           VALUES (origem.idContatoDigisac, origem.nome, origem.numero, origem.note, 
+                           INSERT (idContatoExterno, nome, numero, note, internalname, lastmessageat, createdat)
+                           VALUES (origem.idContatoExterno, origem.nome, origem.numero, origem.note, 
                                    origem.internalname, origem.lastmessageat, origem.createdat);";
 
         await using var cmd = new SqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("idContatoDigisac", contato.Id);
+        cmd.Parameters.AddWithValue("idContatoExterno", contato.Id);
         cmd.Parameters.AddWithValue("nome", (object)contato.Name ?? DBNull.Value);
         cmd.Parameters.AddWithValue("numero", (object)contato.Data?.Number ?? DBNull.Value);
         cmd.Parameters.AddWithValue("note", (object)contato.Note ?? DBNull.Value);
@@ -102,16 +124,16 @@ class Program
             try
             {
                 string sqlLigacao = @"IF NOT EXISTS (
-                                          SELECT 1 FROM Contatos_Digisac_loja 
-                                          WHERE idContatoDigisac = @idContatoDigisac AND idloja = @idloja
+                                          SELECT 1 FROM ContatoLojas 
+                                          WHERE idContatoExterno = @idContatoExterno AND idloja = @idloja
                                        )
                                        BEGIN
-                                           INSERT INTO Contatos_Digisac_loja (idContatoDigisac, idloja) 
-                                           VALUES (@idContatoDigisac, @idloja)
+                                           INSERT INTO ContatoLojas (idContatoExterno, idloja) 
+                                           VALUES (@idContatoExterno, @idloja)
                                        END";
 
                 await using var cmdLigacao = new SqlCommand(sqlLigacao, conn);
-                cmdLigacao.Parameters.AddWithValue("idContatoDigisac", contato.Id);
+                cmdLigacao.Parameters.AddWithValue("idContatoExterno", contato.Id);
                 cmdLigacao.Parameters.AddWithValue("idloja", idLojaConvertido);
                 await cmdLigacao.ExecuteNonQueryAsync();
             }
@@ -126,7 +148,7 @@ class Program
 class RespostaContatos
 {
     [JsonPropertyName("data")]
-    public Contato[] Data { get; set; }
+    public Contato[]? Data { get; set; }
 
     [JsonPropertyName("lastPage")]
     public int LastPage { get; set; }

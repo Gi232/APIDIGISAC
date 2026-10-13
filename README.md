@@ -1,119 +1,69 @@
-# APIDIGISAC
+# Integração de contatos — C# e .NET
 
-Descrição
----------
-APIDIGISAC é uma API desenvolvida em C# (.NET) para fornecer serviços relacionados ao projeto DIGISAC. Este README é um template inicial — ajuste os detalhes (endpoints, variáveis de ambiente, exemplos) conforme a implementação real do seu projeto.
+Aplicação de console que consulta uma **API REST paginada** e sincroniza contatos com **SQL Server**. O projeto demonstra autenticação Bearer, desserialização de JSON, consultas parametrizadas e persistência de dados com C# e .NET.
 
-Badges
-------
-<!-- Substitua pelos badges reais (build, coverage, license, nuget, etc.) -->
-![build](https://img.shields.io/badge/build-pendente-lightgrey)
-![license](https://img.shields.io/badge/license-MIT-blue)
+## Tecnologias
 
-Tecnologias
-----------
-- Linguagem: C# (.NET)
-- Runtime: .NET 6/7/8 ( ajuste conforme o seu projeto )
-- Ferramentas: dotnet CLI, Docker (opcional)
+- C# e .NET 10
+- HttpClient e System.Text.Json
+- SQL Server e Microsoft.Data.SqlClient 7.0.2
 
-Pré-requisitos
---------------
-- .NET SDK (versão compatível com o projeto)
-- Git
-- (Opcional) Docker e Docker Compose
+## Funcionamento
 
-Instalação (local)
-------------------
-1. Clone o repositório:
-   git clone https://github.com/Gi232/APIDIGISAC.git
-2. Entre na pasta do projeto:
-   cd APIDIGISAC
-3. Restaure dependências e construa:
-   dotnet restore
-   dotnet build
+1. Consulta contatos por período e percorre as páginas da API.
+2. Insere novos contatos ou atualiza os existentes pelo identificador externo.
+3. Interpreta IDs de lojas separados por `|` no campo `note` e registra os vínculos.
 
-Executando em desenvolvimento
-----------------------------
-dotnet run --project src/SeuProjeto.Api
-(Altere o caminho acima conforme a estrutura real do seu repositório)
+A URL é configurável, mas o contrato de resposta deve conter `data` (lista de contatos) e `lastPage` (última página). Os contatos utilizam os campos `id`, `name`, `note`, `internalName`, `lastMessageAt`, `createdAt` e `data.number`. APIs com outros contratos exigem adaptação dos modelos e filtros.
 
-Após iniciar, a API normalmente estará disponível em http://localhost:5000 ou https://localhost:5001 (dependendo da configuração).
+## Executar
 
-Configuração
-------------
-As configurações ficam tipicamente em `appsettings.json` e `appsettings.Development.json`. Exemplo de variáveis de ambiente (substitua pelos nomes reais do seu projeto):
+Requisitos: SDK .NET 10, SQL Server e uma API compatível.
 
-- ASPNETCORE_ENVIRONMENT=Development
-- ConnectionStrings__DefaultConnection=<string de conexão>
-- JWT__Issuer=<issuer>
-- JWT__Key=<secret>
+```powershell
+git clone https://github.com/Gi232/APIDIGISAC.git
+cd APIDIGISAC
+dotnet restore
+dotnet build
+```
 
-Exemplo (appsettings.json minimal)
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft": "Warning"
-    }
-  },
-  "AllowedHosts": "*",
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=...;Database=...;User Id=...;Password=...;"
-  }
-}
+Execute `database/schema.sql` em um banco de desenvolvimento vazio. Configure as variáveis no terminal que executará a aplicação:
 
-API — exemplos de uso
----------------------
-Ajuste os endpoints conforme a sua implementação. Os exemplos abaixo são genéricos:
+| Variável | Finalidade |
+|---|---|
+| API_CONTACTS_URL | URL HTTPS do endpoint de contatos |
+| API_TOKEN | Token Bearer, sem o prefixo Bearer |
+| SQL_CONNECTION_STRING | Conexão com seu banco SQL Server |
+| SYNC_START_DATE | Início do período, em yyyy-MM-dd |
+| SYNC_END_DATE | Fim do período, em yyyy-MM-dd |
 
-- Health check
-  GET /health
-  curl -v http://localhost:5000/health
+Exemplo com valores fictícios:
 
-- Exemplo de GET
-  GET /api/v1/items
-  curl -H "Accept: application/json" http://localhost:5000/api/v1/items
+```powershell
+$env:API_CONTACTS_URL = "https://api.example.com/v1/contacts"
+$env:SYNC_START_DATE = "2026-01-01"
+$env:SYNC_END_DATE = "2026-01-31"
+# Configure API_TOKEN e SQL_CONNECTION_STRING no ambiente com seus valores locais.
+dotnet run --project API_DIGISAC.csproj
+```
 
-- Exemplo de POST
-  POST /api/v1/items
-  curl -X POST http://localhost:5000/api/v1/items \
-    -H "Content-Type: application/json" \
-    -d '{"nome":"item exemplo","descricao":"..."}'
+Não há token ou conexão padrão. A aplicação interrompe a execução quando falta uma configuração obrigatória. Arquivos `.env` não são carregados automaticamente.
 
-Documentação interativa
------------------------
-Se o projeto usar Swagger / OpenAPI, acesse:
-http://localhost:5000/swagger
+## Estrutura
 
-Docker (opcional)
------------------
-Exemplo simples de Dockerfile (ajuste para seu projeto):
+- `Program.cs`: consulta da API, paginação e sincronização.
+- `API_DIGISAC.csproj`: configuração da aplicação .NET.
+- `database/schema.sql`: esquema genérico para demonstração.
+- `.gitignore`: exclusão de artefatos e arquivos locais de configuração.
 
-FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS base
-WORKDIR /app
-EXPOSE 80
-EXPOSE 443
+## Cuidados com credenciais
 
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
-WORKDIR /src
-COPY . .
-RUN dotnet restore "src/SeuProjeto.Api/SeuProjeto.Api.csproj"
-RUN dotnet publish "src/SeuProjeto.Api/SeuProjeto.Api.csproj" -c Release -o /app/publish
+Mantenha tokens e conexões fora do código e do controle de versão. Se uma credencial tiver sido publicada anteriormente, revogue ou substitua essa credencial: editar o arquivo não remove versões antigas do histórico.
 
-FROM base AS final
-WORKDIR /app
-COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "SeuProjeto.Api.dll"]
+## Limitações
 
-Estrutura sugerida do repositório
---------------------------------
-- src/ — código-fonte da API
-- tests/ — projetos de teste
-- docs/ — documentação adicional
-- .github/workflows/ — workflows de CI
+A aplicação utiliza filtros `where[lastMessageAt][$gte]` e `where[lastMessageAt][$lte]`; ajuste-os conforme a API. Os vínculos com lojas são adicionados sem remover vínculos anteriores. Não há retry automático nem transação que englobe toda a sincronização. Falhas de SQL nos vínculos são tratadas pelo código existente.
 
-Contato
--------
-Criador: Gi232
-Email/Contato: gigiovanna.2331@gmail.com
+## Autora
 
+[Giovanna Santos — LinkedIn](https://www.linkedin.com/in/giovanna-santos-454a92217/)
