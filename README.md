@@ -1,6 +1,10 @@
-# Integração de contatos — C# e .NET
+# Integração Digisac + SQL Server
 
-Aplicação de console que consulta uma **API REST paginada** e sincroniza contatos com **SQL Server**. O projeto demonstra autenticação Bearer, desserialização de JSON, consultas parametrizadas e persistência de dados com C# e .NET.
+**Integração de contatos entre a API Digisac e SQL Server, desenvolvida em C# e .NET.**
+
+Aplicação de console que consulta os contatos da API Digisac, percorre os resultados paginados e sincroniza os dados com SQL Server. O projeto demonstra autenticação Bearer, desserialização de JSON, consultas parametrizadas e persistência de dados.
+
+Cada pessoa deve configurar a URL da sua instância Digisac, seu próprio token e a conexão com seu banco por variáveis de ambiente. Nenhuma credencial é fornecida no código.
 
 ## Tecnologias
 
@@ -14,11 +18,11 @@ Aplicação de console que consulta uma **API REST paginada** e sincroniza conta
 2. Insere novos contatos ou atualiza os existentes pelo identificador externo.
 3. Interpreta IDs de lojas separados por `|` no campo `note` e registra os vínculos.
 
-A URL é configurável, mas o contrato de resposta deve conter `data` (lista de contatos) e `lastPage` (última página). Os contatos utilizam os campos `id`, `name`, `note`, `internalName`, `lastMessageAt`, `createdAt` e `data.number`. APIs com outros contratos exigem adaptação dos modelos e filtros.
+O cliente utiliza o contrato da API Digisac. A URL da instância é configurável e a resposta deve conter `data` (lista de contatos) e `lastPage` (última página). Os contatos utilizam os campos `id`, `name`, `note`, `internalName`, `lastMessageAt`, `createdAt` e `data.number`. APIs com outros contratos exigem adaptação dos modelos e filtros.
 
 ## Executar
 
-Requisitos: SDK .NET 10, SQL Server e uma API compatível.
+Requisitos: SDK .NET 10, SQL Server e acesso à API de uma instância Digisac.
 
 ```powershell
 git clone https://github.com/Gi232/APIDIGISAC.git
@@ -31,7 +35,7 @@ Execute `database/schema.sql` em um banco de desenvolvimento vazio. Configure as
 
 | Variável | Finalidade |
 |---|---|
-| API_CONTACTS_URL | URL HTTPS do endpoint de contatos |
+| API_CONTACTS_URL | URL HTTPS do endpoint de contatos da sua instância Digisac |
 | API_TOKEN | Token Bearer, sem o prefixo Bearer |
 | SQL_CONNECTION_STRING | Conexão com seu banco SQL Server |
 | SYNC_START_DATE | Início do período, em yyyy-MM-dd |
@@ -62,7 +66,7 @@ Mantenha tokens e conexões fora do código e do controle de versão. Se uma cre
 
 ## Limitações
 
-A aplicação utiliza filtros `where[lastMessageAt][$gte]` e `where[lastMessageAt][$lte]`; ajuste-os conforme a API. Os vínculos com lojas são adicionados sem remover vínculos anteriores. Não há retry automático nem transação que englobe toda a sincronização. Falhas de SQL nos vínculos são tratadas pelo código existente.
+A integração com o Digisac utiliza filtros `where[lastMessageAt][$gte]` e `where[lastMessageAt][$lte]`; ajuste-os conforme a API. Os vínculos com lojas são adicionados sem remover vínculos anteriores. Não há retry automático nem transação que englobe toda a sincronização. Falhas de SQL nos vínculos são tratadas pelo código existente.
 
 ## Autora
 
